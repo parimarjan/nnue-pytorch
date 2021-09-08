@@ -4,40 +4,57 @@ import subprocess
 import sys
 import time
 import argparse
-
+import pdb
 
 def convert_ckpt(root_dir):
     """ Find the list of checkpoints that are available, and convert those that have no matching .nnue """
     # run96/run0/default/version_0/checkpoints/epoch=3.ckpt, or epoch=3-step=321151.ckpt
-    p = re.compile("epoch.*\.ckpt")
+    # p = re.compile("epoch.*\.ckpt")
+    p = re.compile(".*\.ckpt")
+    # print(root_dir)
+    # pdb.set_trace()
     ckpts = []
     for path, subdirs, files in os.walk(root_dir, followlinks=False):
         for filename in files:
             m = p.match(filename)
+            # m = "last.ckpt" in filename
             if m:
                 ckpts.append(os.path.join(path, filename))
 
     # lets move the .nnue files a bit up in the tree, and get rid of the = sign.
     # run96/run0/default/version_0/checkpoints/epoch=3.ckpt -> run96/run0/nn-epoch3.nnue
     for ckpt in ckpts:
-        nnue_file_name = re.sub("default/version_[0-9]+/checkpoints/", "", ckpt)
-        nnue_file_name = re.sub(r"epoch\=([0-9]+).*\.ckpt", r"nn-epoch\1.nnue", nnue_file_name)
-        if not os.path.exists(nnue_file_name):
-            command = "{} serialize.py {} {} ".format(sys.executable, ckpt, nnue_file_name)
-            ret = os.system(command)
-            if ret != 0:
-                print("Error serializing!")
+        # nnue_file_name = re.sub("default/version_[0-9]+/checkpoints/", "", ckpt)
+        nnue_file_name = ckpt
+        if "last" in nnue_file_name:
+            nnue_file_name = root_dir + "/checkpoints/nn-epoch3005.nnue"
+        else:
+            nnue_file_name = re.sub(r"epoch\=([0-9]+).*\.ckpt", r"nn-epoch\1.nnue", nnue_file_name)
+        # print(nnue_file_name)
+        # pdb.set_trace()
+        # nnue_file_name = root_dir + "/test-last.nnue"
+        # if not os.path.exists(nnue_file_name):
+
+        # pari: always convert, so might overwrite, since we are converting last as
+        # well
+        command = "{} serialize.py {} {} ".format(sys.executable, ckpt, nnue_file_name)
+        ret = os.system(command)
+        if ret != 0:
+            print("Error serializing!")
 
 
 def find_nnue(root_dir):
     """ Find the set of nnue nets that are available for testing, going through the full subtree """
     p = re.compile("nn-epoch[0-9]*.nnue")
+    # p = re.compile("*.nnue")
     nnues = []
     for path, subdirs, files in os.walk(root_dir, followlinks=False):
         for filename in files:
             m = p.match(filename)
             if m:
                 nnues.append(os.path.join(path, filename))
+            # if ".nnue" in filename:
+                # nnues.append(os.path.join(path, filename))
     return nnues
 
 
@@ -68,15 +85,17 @@ def run_match(best, root_dir, c_chess_exe, concurrency, book_file_name, stockfis
         stockfish_test = stockfish_base
 
     pgn_file_name = os.path.join(root_dir, "out.pgn")
-    command = "{} -each tc=4+0.04 option.Hash=8 option.Threads=1 -gauntlet -games 200 -rounds 1 -concurrency {}".format(
+    command = "{} -each tc=4+0.04 option.Hash=8 option.Threads=8 -gauntlet -games 200 -rounds 1 -concurrency {}".format(
         c_chess_exe, concurrency
     )
-    command = (
-        command
-        + " -openings file={} order=random -repeat -resign 3 700 -draw 8 10".format(
-            book_file_name
-        )
-    )
+
+    ## no opening files for now
+    # command = (
+        # command
+        # + " -openings file={} order=random -repeat -resign 3 700 -draw 8 10".format(
+            # book_file_name
+        # )
+    # )
     command = command + " -engine cmd={} name=master".format(stockfish_base)
     for net in best:
         command = command + " -engine cmd={} name={} option.EvalFile={}".format(
@@ -85,6 +104,8 @@ def run_match(best, root_dir, c_chess_exe, concurrency, book_file_name, stockfis
     command = command + " -pgn {} 0 2>&1".format(
         pgn_file_name
     )
+
+    print(command)
 
     print("Running match with c-chess-cli ... {}".format(pgn_file_name), flush=True)
     c_chess_out = open(os.path.join(root_dir, "c_chess.out"), 'w')
@@ -99,11 +120,17 @@ def run_match(best, root_dir, c_chess_exe, concurrency, book_file_name, stockfis
                 sys.stdout.write('\n')
             seen[epoch_num.group(1)] = True
             sys.stdout.write('\r' + line.rstrip())
+
+            # pari: get rid of testing for each epoch for now
+            # sys.stdout.write('\n')
+            # sys.stdout.write('\r' + line.rstrip())
+
     sys.stdout.write('\n')
     c_chess_out.close()
     if process.wait() != 0:
         print("Error running match!")
 
+    # pdb.set_trace()
 
 def run_ordo(root_dir, ordo_exe, concurrency):
     """ run an ordo calcuation on an existing pgn file """
