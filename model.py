@@ -5,11 +5,44 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 import copy
 from feature_transformer import DoubleFeatureTransformerSlice
+from torch.autograd import Variable
+import numpy as np
+
+import pdb
 
 # 3 layer fully connected network
 L1 = 1024
 L2 = 8
 L3 = 32
+
+QERR_MIN_EPS = 0.000001
+
+def to_variable(arr, use_cuda=True, requires_grad=False):
+    if isinstance(arr, list) or isinstance(arr, tuple):
+        arr = np.array(arr)
+    if isinstance(arr, np.ndarray):
+        # arr = Variable(torch.from_numpy(arr), requires_grad=requires_grad).to(device)
+        arr = Variable(torch.from_numpy(arr), requires_grad=requires_grad)
+    else:
+        arr = Variable(arr, requires_grad=requires_grad)
+
+    if torch.cuda.is_available() and use_cuda:
+        arr = arr.cuda()
+
+    return arr
+
+def qloss_torch(yhat, ytrue):
+    assert yhat.shape == ytrue.shape
+    yhat = yhat.squeeze()
+    ytrue = ytrue.squeeze()
+
+    epsilons = to_variable([QERR_MIN_EPS]*len(yhat)).float()
+
+    ytrue = torch.max(ytrue, epsilons)
+    yhat = torch.max(yhat, epsilons)
+
+    errors = torch.max( (ytrue / yhat), (yhat / ytrue))
+    return errors
 
 def coalesce_ft_weights(model, layer):
   weight = layer.weight.data
@@ -267,22 +300,52 @@ class NNUE(pl.LightningModule):
     in_scaling = 410
     out_scaling = 361
 
-    q = (self(us, them, white_indices, white_values, black_indices, black_values, psqt_indices, layer_stack_indices) * nnue2score / out_scaling).sigmoid()
-    t = outcome
-    p = (score / in_scaling).sigmoid()
+    # q = (self(us, them, white_indices, white_values, black_indices, black_values, psqt_indices, layer_stack_indices) * nnue2score / out_scaling).sigmoid()
+    # t = outcome
+    # p = (score / in_scaling).sigmoid()
 
-    pt = p * self.lambda_ + t * (1.0 - self.lambda_)
+    # pt = p * self.lambda_ + t * (1.0 - self.lambda_)
 
-    loss = torch.pow(torch.abs(pt - q), 2.6).mean()
+    # loss = torch.pow(torch.abs(pt - q), 2.6).mean()
 
-    self.log(loss_type, loss)
-
-    return loss
+    # self.log(loss_type, loss)
+    # return loss
 
     # MSE Loss function for debugging
     # Scale score by 600.0 to match the expected NNUE scaling factor
     # output = self(us, them, white, black) * 600.0
+
+    # output = self(us, them, white_indices, white_values, black_indices, black_values, psqt_indices, layer_stack_indices) * nnue2score
     # loss = F.mse_loss(output, score)
+
+    ## new/simpler version of MSE
+    q = (self(us, them, white_indices, white_values, black_indices, black_values, psqt_indices, layer_stack_indices) * nnue2score / out_scaling).sigmoid()
+    p = (score / in_scaling).sigmoid()
+    loss = F.mse_loss(q, p)
+
+    ## Q-Error loss
+    # q = (self(us, them, white_indices, white_values, black_indices, black_values, psqt_indices, layer_stack_indices) * nnue2score / out_scaling).sigmoid()
+    # p = (score / in_scaling).sigmoid()
+    # losses = qloss_torch(q, p)
+    # loss = losses.sum() / len(losses)
+
+
+    ## pari: normaliation stuff leads to bad things; scaling seems to be off
+    ## etc.
+    # MIN = -10000
+    # MAX = 10000
+    # score = (score - MIN) / (MAX - MIN)
+    # q = self(us, them, white_indices, white_values, black_indices, black_values, psqt_indices, layer_stack_indices)
+    # # loss = F.mse_loss(q, score)
+    # loss = F.mse_loss(q, torch.log(score))
+
+    # q = (self(us, them, white_indices, white_values, black_indices, black_values, psqt_indices, layer_stack_indices) * nnue2score / out_scaling)
+    # print(torch.min(score))
+    # pdb.set_trace()
+    # p = torch.log((score / in_scaling))
+    # loss = F.mse_loss(q, p)
+
+    return loss
 
   def training_step(self, batch, batch_idx):
     return self.step_(batch, batch_idx, 'train_loss')

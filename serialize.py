@@ -17,11 +17,11 @@ def ascii_hist(name, x, bins=6):
   width = 50
   nmax = N.max()
 
-  print(name)
+  #print(name)
   for (xi, n) in zip(X,N):
     bar = '#'*int(n*1.0*width/nmax)
     xi = '{0: <8.4g}'.format(xi).ljust(10)
-    print('{0}| {1}'.format(xi,bar))
+    #print('{0}| {1}'.format(xi,bar))
 
 # hardcoded for now
 VERSION = 0x7AF32F20
@@ -113,7 +113,7 @@ class NNUEWriter():
     clipped = torch.count_nonzero(weight.clamp(-kMaxWeight, kMaxWeight) - weight)
     total_elements = torch.numel(weight)
     clipped_max = torch.max(torch.abs(weight.clamp(-kMaxWeight, kMaxWeight) - weight))
-    print("layer has {}/{} clipped weights. Exceeding by {} the maximum {}.".format(clipped, total_elements, clipped_max, kMaxWeight))
+    #print("layer has {}/{} clipped weights. Exceeding by {} the maximum {}.".format(clipped, total_elements, clipped_max, kMaxWeight))
     weight = weight.clamp(-kMaxWeight, kMaxWeight).mul(kWeightScale).round().to(torch.int8)
     ascii_hist('fc weight:', weight.numpy())
     # FC inputs are padded to 32 elements for simd.
